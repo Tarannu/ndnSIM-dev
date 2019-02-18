@@ -110,7 +110,7 @@ def build(bld):
         includes='../../ns3/ndnSIM/NFD',
         use='version-NFD versioncpp-NFD')
 
-    deps = ['core', 'network', 'point-to-point', 'topology-read', 'mobility', 'internet']
+    deps = ['core', 'network', 'point-to-point', 'topology-read', 'mobility', 'internet', 'lte']
     if 'ns3-visualizer' in bld.env['NS3_ENABLED_MODULES']:
         deps.append('visualizer')
 
