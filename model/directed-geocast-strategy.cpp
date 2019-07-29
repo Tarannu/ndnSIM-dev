@@ -28,6 +28,13 @@
 #include "daemon/common/logger.hpp"
 #include "daemon/common/global.hpp"
 
+#include <ndn-cxx/lp/geo-tag.hpp>
+
+#include "ns3/mobility-model.h"
+#include "ns3/node-list.h"
+#include "ns3/node.h"
+#include "ns3/simulator.h"
+
 namespace nfd {
 namespace fw {
 
@@ -76,7 +83,6 @@ DirectedGeocastStrategy::afterReceiveInterest(const FaceEndpoint& ingress, const
     if (outFace.getLinkType() != ndn::nfd::LINK_TYPE_AD_HOC) {
       // for non-ad hoc links, send interest as usual
       this->sendInterest(pitEntry, FaceEndpoint(outFace, 0), interest);
-
       NFD_LOG_DEBUG(interest << " from=" << ingress << " pitEntry-to=" << outFace.getId());
     }
     else {
@@ -92,23 +98,29 @@ DirectedGeocastStrategy::afterReceiveInterest(const FaceEndpoint& ingress, const
       }
 
       // calculate time to delay interest
-      auto delay = 10_ms;
+      auto delay = calculateDelay(interest);
+      if (delay > 0_s) {
+        scheduler::ScopedEventId event = getScheduler().schedule(delay, [this, pitEntryWeakPtr,
+                                                                         faceId, interest] {
+            auto pitEntry = pitEntryWeakPtr.lock();
+            auto outFace = getFaceTable().get(faceId);
+            if (pitEntry == nullptr || outFace == nullptr) {
+              // something bad happened to the PIT entry, nothing to process
+              return;
+            }
 
-      scheduler::ScopedEventId event = getScheduler().schedule(delay, [this, pitEntryWeakPtr,
-                                                            faceId, endpoint = ingress.endpoint,
-                                                            interest] {
-          auto pitEntry = pitEntryWeakPtr.lock();
-          auto outFace = getFaceTable().get(faceId);
-          if (pitEntry == nullptr || outFace == nullptr) {
-            // something bad happened to the PIT entry, nothing to process
-            return;
-          }
+            this->sendInterest(pitEntry, FaceEndpoint(*outFace, 0), interest);
+            NFD_LOG_DEBUG("delayed " << interest << " pitEntry-to=" << faceId);
+          });
 
-          this->sendInterest(pitEntry, FaceEndpoint(*outFace, endpoint), interest);
-        });
-
-      // save `event` into pitEntry
-      pi->queue.emplace(faceId, std::move(event));
+        // save `event` into pitEntry
+        pi->queue.emplace(faceId, std::move(event));
+      }
+      else {
+        this->sendInterest(pitEntry, FaceEndpoint(outFace, 0), interest);
+        NFD_LOG_DEBUG("Could not determine to delay interest");
+        NFD_LOG_DEBUG(interest << " from=" << ingress << " pitEntry-to=" << outFace.getId());
+      }
     }
 
     ++nEligibleNextHops;
@@ -145,15 +157,73 @@ DirectedGeocastStrategy::afterReceiveLoopedInterest(const FaceEndpoint& ingress,
     return;
   }
 
-  // determine whether to cancel the transmission or not
-  bool shouldCancelScheduledTransmission = false;
-
-  if (shouldCancelScheduledTransmission) {
+  if (shouldCancelTransmission(pitEntry, interest)) {
     item->second.cancel();
 
     // don't do anything to the PIT entry (let it expire as usual)
     NFD_LOG_DEBUG("Canceling transmission of " << interest << " via=" << ingress.face.getId());
   }
+}
+
+ndn::optional<ns3::Vector>
+DirectedGeocastStrategy::getSelfPosition()
+{
+  auto node = ns3::NodeList::GetNode(ns3::Simulator::GetContext());
+  if (node == nullptr) {
+    return nullopt;
+  }
+
+  auto mobility = node->GetObject<ns3::MobilityModel>();
+  if (mobility == nullptr) {
+    return nullopt;
+  }
+
+  return mobility->GetPosition();
+}
+
+ndn::optional<ns3::Vector>
+DirectedGeocastStrategy::extractPositionFromTag(const Interest& interest)
+{
+  auto tag = interest.getTag<ndn::lp::GeoTag>();
+  if (tag == nullptr) {
+    return nullopt;
+  }
+
+  auto pos = tag->getPos();
+  return ns3::Vector(std::get<0>(pos), std::get<1>(pos), std::get<2>(pos));
+}
+
+time::nanoseconds
+DirectedGeocastStrategy::calculateDelay(const Interest& interest)
+{
+  auto self = getSelfPosition();
+  auto from = extractPositionFromTag(interest);
+
+  if (!self || !from) {
+    NFD_LOG_DEBUG("self or from position is missing");
+    return 0_s;
+  }
+
+  // TODO
+
+  return 10_ms;
+}
+
+bool
+DirectedGeocastStrategy::shouldCancelTransmission(const pit::Entry& oldPitEntry, const Interest& newInterest)
+{
+  auto self = getSelfPosition();
+  auto oldFrom = extractPositionFromTag(oldPitEntry.getInterest());
+  auto newFrom = extractPositionFromTag(newInterest);
+
+  if (!self || !oldFrom || !newFrom) {
+    NFD_LOG_DEBUG("self, oldFrom, or newFrom position is missing");
+    return false;
+  }
+
+  // TODO
+
+  return false;
 }
 
 } // namespace fw

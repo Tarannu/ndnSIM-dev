@@ -22,6 +22,8 @@
 
 #include "daemon/fw/strategy.hpp"
 
+#include "ns3/vector.h"
+
 namespace nfd {
 namespace fw {
 
@@ -45,6 +47,25 @@ public:
   void
   afterReceiveLoopedInterest(const FaceEndpoint& ingress, const Interest& interest,
                              pit::Entry& pitEntry) override;
+
+private:
+  static ndn::optional<ns3::Vector>
+  getSelfPosition();
+
+  static ndn::optional<ns3::Vector>
+  extractPositionFromTag(const Interest& interest);
+
+  /**
+   * if returns 0_s, then either own position or geo tag in interest is missing
+   */
+  static time::nanoseconds
+  calculateDelay(const Interest& interest);
+
+  /**
+   * will return false if own position is unknown or old PIT entry or new Interest are missing geo tag
+   */
+  static bool
+  shouldCancelTransmission(const pit::Entry& oldPitEntry, const Interest& newInterest);
 
 private: // StrategyInfo
   /** \brief StrategyInfo on PIT entry
