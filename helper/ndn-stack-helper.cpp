@@ -56,7 +56,6 @@ StackHelper::StackHelper()
   : m_isForwarderStatusManagerDisabled(false)
   , m_isStrategyChoiceManagerDisabled(false)
   , m_needSetDefaultRoutes(false)
-  , m_maxCsSize(100)
 {
   setCustomNdnCxxClocks();
 
@@ -176,7 +175,7 @@ StackHelper::doInstall(Ptr<Node> node) const
     ndn->getConfig().put("ndnSIM.disable_strategy_choice_manager", true);
   }
 
-  ndn->getConfig().put("tables.cs_max_packets", (m_maxCsSize == 0) ? 1 : m_maxCsSize);
+  ndn->getConfig().put("tables.cs_max_packets", m_maxCsSize);
 
   ndn->setCsReplacementPolicy(m_csPolicyCreationFunc);
 
