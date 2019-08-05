@@ -24,16 +24,19 @@
  */
 
 #include "directed-geocast-strategy.hpp"
-#include "daemon/fw/algorithm.hpp"
+#include "NFD/daemon/fw/strategy.hpp"
 #include "daemon/common/logger.hpp"
 #include "daemon/common/global.hpp"
-
 #include <ndn-cxx/lp/geo-tag.hpp>
-
 #include "ns3/mobility-model.h"
 #include "ns3/node-list.h"
 #include "ns3/node.h"
 #include "ns3/simulator.h"
+#include "ns3/random-variable-stream.h"
+#include "math.h"
+#include "vector.h"
+#include "ns3/mobility-helper.h"
+
 
 namespace nfd {
 namespace fw {
@@ -157,7 +160,7 @@ DirectedGeocastStrategy::afterReceiveLoopedInterest(const FaceEndpoint& ingress,
     return;
   }
 
-  if (shouldCancelTransmission(pitEntry, interest)) {
+  if (!shouldCancelTransmission(pitEntry, interest) ) {
     item->second.cancel();
 
     // don't do anything to the PIT entry (let it expire as usual)
@@ -196,17 +199,32 @@ DirectedGeocastStrategy::extractPositionFromTag(const Interest& interest)
 time::nanoseconds
 DirectedGeocastStrategy::calculateDelay(const Interest& interest)
 {
-  auto self = getSelfPosition();
-  auto from = extractPositionFromTag(interest);
+  auto self = getSelfPosition(); //extract position from current node
+  auto from = extractPositionFromTag(interest); //extract position from tag
+  time randomTimer = 0.002_s
+ //UniformRandomVariable randomvariable ;
+ //time::nanoseconds randomTimer = Seconds(randomvariable.GetValue (double 0.0, double 0.02);	
 
   if (!self || !from) {
     NFD_LOG_DEBUG("self or from position is missing");
     return 0_s;
   }
 
-  // TODO
+  time waitTime;
+  auto minDelay = 0.05_s;
+  double maxDist = 150; 
+  double distance_to_lasthop = CalculateDistance(self,from) ;
 
-  return 10_ms;
+  time waiTime;
+  if (distance_to_lasthop < maxDist) {
+        waitTime = Seconds (((maxDist - distance_to_lasthop) / maxDist) * minDelay + randomTimer);
+  }
+  else {
+        NS_LOG_INFO("Tranmission distance is longer than max distance");
+        return randomTimer;
+  }
+  
+  return waitTime;
 }
 
 bool
@@ -215,16 +233,30 @@ DirectedGeocastStrategy::shouldCancelTransmission(const pit::Entry& oldPitEntry,
   auto self = getSelfPosition();
   auto oldFrom = extractPositionFromTag(oldPitEntry.getInterest());
   auto newFrom = extractPositionFromTag(newInterest);
+  
+  double distanceToLasthop = ns3::CalculateDistance(self,newFrom);
+  double distanceToOldhop = ns3::CalculateDistance(self,oldFrom);
+  double distanceBetweenLasthops = ns3::CalculateDistance(newFrom,oldFrom);
 
-  if (!self || !oldFrom || !newFrom) {
-    NFD_LOG_DEBUG("self, oldFrom, or newFrom position is missing");
-    return false;
+  int Angle_rad = acos(pow(distanceToOldhop,2) + pow(distanceBetweenLasthops,2) - pow(distanceToLasthop,2) )/(2 * distanceToOldhop * distanceBetweenLasthops);
+  int Angle_Deg = Angle_rad * 180 / 3.141592 ;
+
+  // Projection Calculation
+  int cosine_Angle_at_self = (pow (distanceToOldhop,2) + pow (distanceToLasthop,2) - pow (distanceBetweenLasthops,2))/(2 * distanceToOldhop * distanceToLasthop );
+  double projection = distanceToLasthop * cosine_Angle_at_self;
+
+  // if angles between previous to previous hop and current node >= 90'
+  if (Angle_Deg >= 90){
+   return true;
   }
-
-  // TODO
-
-  return false;
+  else if (projection > distanceToOldhop ){
+  return true;
+  }
+  
+  return false; 
 }
 
 } // namespace fw
 } // namespace nfd
+
+
