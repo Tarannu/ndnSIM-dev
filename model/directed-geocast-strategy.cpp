@@ -34,7 +34,11 @@
 #include "ns3/node-list.h"
 #include "ns3/node.h"
 #include "ns3/simulator.h"
-
+#include <tuple>
+#include <sstream>
+#include "math.h"
+#include "ns3/vector.h"
+#include <chrono>
 namespace nfd {
 namespace fw {
 
@@ -153,11 +157,11 @@ DirectedGeocastStrategy::afterReceiveLoopedInterest(const FaceEndpoint& ingress,
 
   auto item = pi->queue.find(ingress.face.getId());
   if (item == pi->queue.end()) {
-    NFD_LOG_DEBUG("Got looped interest, but no even was scheduled for the face");
+    NFD_LOG_DEBUG("Got looped interest, but no event was scheduled for the face");
     return;
   }
 
-  if (shouldCancelTransmission(pitEntry, interest)) {
+  if (!shouldCancelTransmission(pitEntry, interest)) {
     item->second.cancel();
 
     // don't do anything to the PIT entry (let it expire as usual)
@@ -177,8 +181,8 @@ DirectedGeocastStrategy::getSelfPosition()
   if (mobility == nullptr) {
     return nullopt;
   }
-
   return mobility->GetPosition();
+
 }
 
 ndn::optional<ns3::Vector>
@@ -196,15 +200,25 @@ DirectedGeocastStrategy::extractPositionFromTag(const Interest& interest)
 time::nanoseconds
 DirectedGeocastStrategy::calculateDelay(const Interest& interest)
 {
-  auto self = getSelfPosition();
+  
+  auto self = getSelfPosition(); 
   auto from = extractPositionFromTag(interest);
+  //time::seconds waitTime; 
+  //double distance = (self -> GetLength() - from -> GetLength()); 
 
   if (!self || !from) {
     NFD_LOG_DEBUG("self or from position is missing");
     return 0_s;
   }
+  /*double minTime = 0.002; double maxDist = 150;
+  if (distance < maxDist){
+    NFD_LOG_DEBUG("self and from are within max limit");
+    waitTime = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>{(minTime * (maxDist-distance)/maxDist)});
+    
+    
+  }*/ 
 
-  // TODO
+  // TODO adding waitime calculation based on distance with correct format
 
   return 10_ms;
 }
@@ -215,16 +229,36 @@ DirectedGeocastStrategy::shouldCancelTransmission(const pit::Entry& oldPitEntry,
   auto self = getSelfPosition();
   auto oldFrom = extractPositionFromTag(oldPitEntry.getInterest());
   auto newFrom = extractPositionFromTag(newInterest);
+  
+  //distance calculation
+  double distanceToLasthop = (self -> GetLength() - newFrom -> GetLength());
+  double distanceToOldhop = (self -> GetLength() - oldFrom -> GetLength());
+  double distanceBetweenLasthops = ( newFrom -> GetLength() - oldFrom -> GetLength());
+
+  //Angle calculation
+  double Angle_rad = acos(pow(distanceToOldhop,2) + pow(distanceBetweenLasthops,2) - pow(distanceToLasthop,2) )/(2 * distanceToOldhop * distanceBetweenLasthops);
+  double Angle_Deg = Angle_rad * 180 / 3.141592 ;
+
+  // Projection Calculation
+  double cosine_Angle_at_self = (pow (distanceToOldhop,2) + pow (distanceToLasthop,2) - pow (distanceBetweenLasthops,2))/(2 * distanceToOldhop * distanceToLasthop );
+  double projection = distanceToLasthop * cosine_Angle_at_self;
 
   if (!self || !oldFrom || !newFrom) {
     NFD_LOG_DEBUG("self, oldFrom, or newFrom position is missing");
     return false;
   }
-
-  // TODO
-
+  if (Angle_Deg >= 90){
+   NFD_LOG_DEBUG("Interest need not be cancelled");
+   return true;
+  }
+  else if (projection > distanceToOldhop ){
+  NFD_LOG_DEBUG("Interest need not be cancelled");
+  return true;
+  }
   return false;
 }
+
+
 
 } // namespace fw
 } // namespace nfd
