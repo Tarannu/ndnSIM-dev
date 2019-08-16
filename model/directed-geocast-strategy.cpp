@@ -161,7 +161,7 @@ DirectedGeocastStrategy::afterReceiveLoopedInterest(const FaceEndpoint& ingress,
     return;
   }
 
-  if (!shouldCancelTransmission(pitEntry, interest)) {
+  if (shouldCancelTransmission(pitEntry, interest)) {
     item->second.cancel();
 
     // don't do anything to the PIT entry (let it expire as usual)
@@ -190,7 +190,7 @@ DirectedGeocastStrategy::extractPositionFromTag(const Interest& interest)
 {
   auto tag = interest.getTag<ndn::lp::GeoTag>();
   if (tag == nullptr) {
-    return nullopt;
+  return nullopt;
   }
 
   auto pos = tag->getPos();
@@ -203,24 +203,24 @@ DirectedGeocastStrategy::calculateDelay(const Interest& interest)
   
   auto self = getSelfPosition(); 
   auto from = extractPositionFromTag(interest);
-  //time::seconds waitTime; 
-  //double distance = (self -> GetLength() - from -> GetLength()); 
+  time::nanoseconds(waitTime); 
+  double distance = (self->GetLength()-from->GetLength()); 
 
   if (!self || !from) {
     NFD_LOG_DEBUG("self or from position is missing");
     return 0_s;
   }
-  /*double minTime = 0.002; double maxDist = 150;
+  double minTime = 0.002; double maxDist = 150;
   if (distance < maxDist){
     NFD_LOG_DEBUG("self and from are within max limit");
-    waitTime = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>{(minTime * (maxDist-distance)/maxDist)});
-    
-    
-  }*/ 
+    waitTime = time::duration_cast<time::nanoseconds>(time::duration<double>{(minTime * (maxDist-distance)/maxDist)});
+    return waitTime;
+  } 
 
   // TODO adding waitime calculation based on distance with correct format
-
-  return 10_ms;
+  else{
+  return waitTime = 10_ms;
+  }
 }
 
 bool
@@ -231,9 +231,9 @@ DirectedGeocastStrategy::shouldCancelTransmission(const pit::Entry& oldPitEntry,
   auto newFrom = extractPositionFromTag(newInterest);
   
   //distance calculation
-  double distanceToLasthop = (self -> GetLength() - newFrom -> GetLength());
-  double distanceToOldhop = (self -> GetLength() - oldFrom -> GetLength());
-  double distanceBetweenLasthops = ( newFrom -> GetLength() - oldFrom -> GetLength());
+  double distanceToLasthop = (self->GetLength() - newFrom->GetLength());
+  double distanceToOldhop = (self->GetLength() - oldFrom->GetLength());
+  double distanceBetweenLasthops = (newFrom->GetLength() - oldFrom->GetLength());
 
   //Angle calculation
   double Angle_rad = acos(pow(distanceToOldhop,2) + pow(distanceBetweenLasthops,2) - pow(distanceToLasthop,2) )/(2 * distanceToOldhop * distanceBetweenLasthops);
@@ -245,17 +245,17 @@ DirectedGeocastStrategy::shouldCancelTransmission(const pit::Entry& oldPitEntry,
 
   if (!self || !oldFrom || !newFrom) {
     NFD_LOG_DEBUG("self, oldFrom, or newFrom position is missing");
-    return false;
+    return true;
   }
   if (Angle_Deg >= 90){
    NFD_LOG_DEBUG("Interest need not be cancelled");
-   return true;
+   return false;
   }
   else if (projection > distanceToOldhop ){
   NFD_LOG_DEBUG("Interest need not be cancelled");
-  return true;
-  }
   return false;
+  }
+  return true;
 }
 
 
