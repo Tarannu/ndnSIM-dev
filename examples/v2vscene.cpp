@@ -1,48 +1,74 @@
 #include "ns3/lte-module.h"
-#include "ns3/network-module.h"
-#include "ns3/mobility-module.h"
-#include "ns3/ndnSIM-module.h"
-#include "ns3/lte-module.h"
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
-#include "ns3/ndnSIM/helper/ndn-app-helper.hpp"
-#include "ns3/ndnSIM/helper/ndn-stack-helper.hpp"
+#include "ns3/internet-module.h"
+#include "ns3/mobility-module.h"
+#include "ns3/applications-module.h"
+#include "ns3/point-to-point-module.h"
+#include "ns3/config-store.h"
+#include <cfloat>
+#include <sstream>
 
-#include "ns3/ndnSIM/model/directed-geocast-strategy.hpp"
+#include "ns3/ndnSIM-module.h"
 
-#include <algorithm>
-#include <vector>
+using namespace ns3;
 
+/*
+ * The topology is the following:
+ *
+ *          UE1..........(20 m)..........UE2
+ *   (0.0, 0.0, 1.5)            (20.0, 0.0, 1.5)
+ *
+ * Please refer to the Sidelink section of the LTE user documentation for more details.
+ *
+ */
 
 NS_LOG_COMPONENT_DEFINE ("LteSlOutOfCovrgNDN");
-namespace ns3{
-int
-main(int argc, char* argv[])
+
+int main (int argc, char *argv[])
 {
-    CommandLine cmd;
-    cmd.Parse (argc, argv);
+  Time simTime = Seconds (6);
+  bool enableNsLogs = false;
+  bool useIPv6 = false;
 
-    //Configure the UE for UE_SELECTED scenario
-    Config::SetDefault ("ns3::LteUeMac::SlGrantMcs", UintegerValue (16));
-    Config::SetDefault ("ns3::LteUeMac::SlGrantSize", UintegerValue (5)); //The number of RBs allocated per UE for Sidelink
-    Config::SetDefault ("ns3::LteUeMac::Ktrp", UintegerValue (1));
-    Config::SetDefault ("ns3::LteUeMac::UseSetTrp", BooleanValue (true)); //use default Trp index of 0
-  
-    /* Although eNB and Ue bandwidth are not used in this scenario
-     * Becasue UEs will use only the Sidelink to communicate, therefore, the EARFCN and the bandwidth are specified in the pool configuration. 
-    * At this stage, the bottom two variables are initialized to be used later to configure the pathloss model and the Sidelink pool
-    Set the frequency **/
+  CommandLine cmd;
+  cmd.AddValue ("simTime", "Total duration of the simulation", simTime);
+  cmd.AddValue ("enableNsLogs", "Enable ns-3 logging (debug builds)", enableNsLogs);
+  cmd.AddValue ("useIPv6", "Use IPv6 instead of IPv4", useIPv6);
+  cmd.Parse (argc, argv);
 
-    uint32_t ulEarfcn = 18100;  
-    uint16_t ulBandwidth = 50;
+  //Configure the UE for UE_SELECTED scenario
+  Config::SetDefault ("ns3::LteUeMac::SlGrantMcs", UintegerValue (16));
+  Config::SetDefault ("ns3::LteUeMac::SlGrantSize", UintegerValue (5)); //The number of RBs allocated per UE for Sidelink
+  Config::SetDefault ("ns3::LteUeMac::Ktrp", UintegerValue (1));
+  Config::SetDefault ("ns3::LteUeMac::UseSetTrp", BooleanValue (true)); //use default Trp index of 0
+
+  //Set the frequency
+  uint32_t ulEarfcn = 18100;
+  uint16_t ulBandwidth = 50;
 
   // Set error models
   Config::SetDefault ("ns3::LteSpectrumPhy::SlCtrlErrorModelEnabled", BooleanValue (true));
   Config::SetDefault ("ns3::LteSpectrumPhy::SlDataErrorModelEnabled", BooleanValue (true));
   Config::SetDefault ("ns3::LteSpectrumPhy::DropRbOnCollisionEnabled", BooleanValue (false));
-    
-    //Set the UEs power in dBm
-    Config::SetDefault ("ns3::LteUePhy::TxPower", DoubleValue (23.0));
+
+  ConfigStore inputConfig;
+  inputConfig.ConfigureDefaults ();
+  // parse again so we can override input file default values via command line
+  cmd.Parse (argc, argv);
+
+  if (enableNsLogs)
+    {
+      LogLevel logLevel = (LogLevel)(LOG_PREFIX_FUNC | LOG_PREFIX_TIME | LOG_PREFIX_NODE | LOG_LEVEL_ALL);
+
+      LogComponentEnable ("LteUeRrc", logLevel);
+      LogComponentEnable ("LteUeMac", logLevel);
+      LogComponentEnable ("LteSpectrumPhy", logLevel);
+      LogComponentEnable ("LteUePhy", logLevel);
+    }
+
+  //Set the UEs power in dBm
+  Config::SetDefault ("ns3::LteUePhy::TxPower", DoubleValue (23.0));
 
   //Sidelink bearers activation time
   Time slBearersActivationTime = Seconds (2.0);
@@ -54,10 +80,9 @@ main(int argc, char* argv[])
   Ptr<PointToPointEpcHelper>  epcHelper = CreateObject<PointToPointEpcHelper> ();
   lteHelper->SetEpcHelper (epcHelper);
 
-
   ////Create Sidelink helper and set lteHelper
   Ptr<LteSidelinkHelper> proseHelper = CreateObject<LteSidelinkHelper> ();
-  proseHelper->SetLteHelper (lteHelper); 
+  proseHelper->SetLteHelper (lteHelper);
 
   //Enable Sidelink
   lteHelper->SetAttribute ("UseSidelink", BooleanValue (true));
@@ -87,17 +112,17 @@ main(int argc, char* argv[])
   NS_LOG_INFO ("UE 1 node id = [" << ueNodes.Get (0)->GetId () << "]");
   NS_LOG_INFO ("UE 2 node id = [" << ueNodes.Get (1)->GetId () << "]");
   NS_LOG_INFO ("UE 3 node id = [" << ueNodes.Get (2)->GetId () << "]");
-  NS_LOG_INFO ("UE 4 node id = [" << ueNodes.Get (4)->GetId () << "]");
+  NS_LOG_INFO ("UE 4 node id = [" << ueNodes.Get (3)->GetId () << "]");
 
-    //Fix Position of the nodes
-    Ptr<ListPositionAllocator> positionAllocUe1 = CreateObject<ListPositionAllocator> ();
-    positionAllocUe1->Add (Vector (0.0, 0.0, 1.5));
-    Ptr<ListPositionAllocator> positionAllocUe2 = CreateObject<ListPositionAllocator> (); // distance at 20 m
-    positionAllocUe2->Add (Vector (20.0, 0.0, 1.5));
-    Ptr<ListPositionAllocator> positionAllocUe3 = CreateObject<ListPositionAllocator> (); // distance at 2 m
-    positionAllocUe3->Add (Vector (2.0, 0.0, 1.5)); 
-    Ptr<ListPositionAllocator> positionAllocUe4 = CreateObject<ListPositionAllocator> (); // distance at 100m
-    positionAllocUe4->Add (Vector (100.0, 0.0, 1.5));
+  //Position of the nodes
+  Ptr<ListPositionAllocator> positionAllocUe1 = CreateObject<ListPositionAllocator> ();
+  positionAllocUe1->Add (Vector (0.0, 0.0, 1.5));
+  Ptr<ListPositionAllocator> positionAllocUe2 = CreateObject<ListPositionAllocator> ();
+  positionAllocUe2->Add (Vector (20.0, 0.0, 1.5));
+  Ptr<ListPositionAllocator> positionAllocUe3 = CreateObject<ListPositionAllocator> ();
+  positionAllocUe3->Add (Vector (2.0, 0.0, 1.5));
+  Ptr<ListPositionAllocator> positionAllocUe4 = CreateObject<ListPositionAllocator> ();
+  positionAllocUe4->Add (Vector (100.0, 0.0, 1.5)); 
 
   //Install mobility
 
@@ -112,19 +137,20 @@ main(int argc, char* argv[])
   mobilityUe2.Install (ueNodes.Get (1));
 
   MobilityHelper mobilityUe3;
-  mobilityUe3.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  mobilityUe3.SetPositionAllocator (positionAllocUe1);
-  mobilityUe3.Install (ueNodes.Get (2));
+  mobilityUe1.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  mobilityUe1.SetPositionAllocator (positionAllocUe3);
+  mobilityUe1.Install (ueNodes.Get (2));
 
   MobilityHelper mobilityUe4;
-  mobilityUe4.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  mobilityUe4.SetPositionAllocator (positionAllocUe2);
-  mobilityUe4.Install (ueNodes.Get (3));
+  mobilityUe2.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  mobilityUe2.SetPositionAllocator (positionAllocUe4);
+  mobilityUe2.Install (ueNodes.Get (3));
+
 
   //Install LTE UE devices to the nodes
-  NetDeviceContainer ueDevs = lteHelper->InstallUeDevice (ueNodes); 
+  NetDeviceContainer ueDevs = lteHelper->InstallUeDevice (ueNodes);
 
-  //Sidelink pre-configuration for the UEs to work without eNB
+  //Sidelink pre-configuration for the UEs
   Ptr<LteSlUeRrc> ueSidelinkConfiguration = CreateObject<LteSlUeRrc> ();
   ueSidelinkConfiguration->SetSlEnabled (true);
 
@@ -136,7 +162,7 @@ main(int argc, char* argv[])
 
   LteSlPreconfigPoolFactory pfactory;
 
-    //Control
+  //Control
   pfactory.SetControlPeriod ("sf40");
   pfactory.SetControlBitmap (0x00000000FF); //8 subframes for PSCCH
   pfactory.SetControlOffset (0);
@@ -156,45 +182,77 @@ main(int argc, char* argv[])
   ueSidelinkConfiguration->SetSlPreconfiguration (preconfiguration);
   lteHelper->InstallSidelinkConfiguration (ueDevs, ueSidelinkConfiguration);
 
-  ///** Install NDN stack on all nodes **///
+  InternetStackHelper internet;
+  internet.Install (ueNodes);
+  uint32_t groupL2Address = 255;
+  Ipv4Address groupAddress4 ("225.63.63.1");     //use multicast address as destination
 
-  ndn::StackHelper ndnHelper;
-  ndnHelper.SetDefaultRoutes(true);
-  ndnHelper.InstallAll();
-  Ptr<LteSlTft> tft;
-  //tft = Create<LteSlTft> (LteSlTft::BIDIRECTIONAL, groupAddress6, groupL2Address);
+  Ipv4InterfaceContainer ueIpIface;
+  ueIpIface = epcHelper->AssignUeIpv4Address (NetDeviceContainer (ueDevs));
 
-  //* Choosing forwarding strategy *//
-  ndn::StrategyChoiceHelper::InstallAll("/","/localhost/nfd/strategy/best-route/DirectedGeocastStrategy");
+  // set the default gateway for the UE
+  Ipv4StaticRoutingHelper ipv4RoutingHelper;
+  for (uint32_t u = 0; u < ueNodes.GetN (); ++u) {
+    Ptr<Node> ueNode = ueNodes.Get(u);
+    // Set the default gateway for the UE
+    Ptr<Ipv4StaticRouting> ueStaticRouting = ipv4RoutingHelper.GetStaticRouting(ueNode->GetObject<Ipv4>());
+    ueStaticRouting->SetDefaultRoute (epcHelper->GetUeDefaultGatewayAddress(), 1);
+  }
 
-  ///*** Configure applications ***///
-  // Consumer
-  ndn::AppHelper consumerHelper("ns3::ndn::ConsumerCbr");
-  // Consumer will request /v2vsafety/0, /v2vsafety/1, ...
-  consumerHelper.SetPrefix("/v2vsafety");
-  consumerHelper.Install(ueNodes.Get(0));                        
+  Address remoteAddress = InetSocketAddress (groupAddress4, 8000);
+  Address localAddress = InetSocketAddress (Ipv4Address::GetAny (), 8000);
+  Ptr<LteSlTft> tft = Create<LteSlTft> (LteSlTft::BIDIRECTIONAL, groupAddress4, groupL2Address);
 
-  // Producer
-  ndn::AppHelper producerHelper("ns3::ndn::Producer");
-  // Producer will reply to all requests starting with /v2vsafety
-  producerHelper.SetPrefix("/v2vsafety");
-  producerHelper.Install(ueNodes.Get(1));
-  producerHelper.Install(ueNodes.Get(2));
-  producerHelper.Install(ueNodes.Get(3));
+  // ///*** Configure applications ***///
+
+  // //Set Application in the UEs
+  // OnOffHelper sidelinkClient ("ns3::UdpSocketFactory", remoteAddress);
+  // sidelinkClient.SetConstantRate (DataRate ("16kb/s"), 200);
+
+  // ApplicationContainer clientApps = sidelinkClient.Install (ueNodes.Get (0));
+  // //onoff application will send the first packet at :
+  // //(2.9 (App Start Time) + (1600 (Pkt size in bits) / 16000 (Data rate)) = 3.0 sec
+  // clientApps.Start (slBearersActivationTime + Seconds (0.9));
+  // clientApps.Stop (simTime - slBearersActivationTime + Seconds (1.0));
+
+  // ApplicationContainer serverApps;
+  // PacketSinkHelper sidelinkSink ("ns3::UdpSocketFactory", localAddress);
+  // serverApps = sidelinkSink.Install (ueNodes.Get (1));
+  // serverApps.Start (Seconds (2.0));
 
   //Set Sidelink bearers
   proseHelper->ActivateSidelinkBearer (slBearersActivationTime, ueDevs, tft);
   ///*** End of application configuration ***///
 
-    NS_LOG_INFO ("Starting simulation...");
-    Simulator::Stop(Seconds(20));
-    Simulator::Run();
-    Simulator::Destroy();
-    return 0;
-}
-}
-int
-main(int argc, char* argv[])
-{
-  return ns3::main(argc, argv);
+  ::ns3::ndn::StackHelper helper;
+  helper.SetDefaultRoutes(true);
+  helper.InstallAll();
+
+    //* Choosing forwarding strategy *//
+  ns3::ndn::StrategyChoiceHelper::InstallAll("/","/localhost/nfd/strategy/DirectedGeocastStrategy");
+
+  // Consumer
+  ::ns3::ndn::AppHelper consumerHelper("ns3::ndn::ConsumerCbr");
+  // Consumer will request /prefix/0, /prefix/1, ...
+  consumerHelper.SetPrefix("/prefix");
+  consumerHelper.SetAttribute("Frequency", StringValue("1")); // 10 interests a second
+  consumerHelper.Install(ueNodes.Get(0));                        // first node
+
+  // Producer
+  ::ns3::ndn::AppHelper producerHelper("ns3::ndn::Producer");
+  // Producer will reply to all requests starting with /prefix
+  producerHelper.SetPrefix("/prefix");
+  producerHelper.SetAttribute("PayloadSize", StringValue("1024"));
+  producerHelper.Install(ueNodes.Get(1)); // last node
+
+  //Forwarder
+  
+
+
+  Simulator::Stop (Seconds(20));
+
+  Simulator::Run ();
+  Simulator::Destroy ();
+  return 0;
+
 }
