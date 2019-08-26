@@ -23,7 +23,7 @@ using namespace ns3;
  *
  */
 
-NS_LOG_COMPONENT_DEFINE ("LteSlOutOfCovrgNDN");
+NS_LOG_COMPONENT_DEFINE ("LteSlOutOfCovrg");
 
 int main (int argc, char *argv[])
 {
@@ -108,21 +108,18 @@ int main (int argc, char *argv[])
 
   //Create nodes (UEs)
   NodeContainer ueNodes;
-  ueNodes.Create (4);
+  ueNodes.Create (3);
   NS_LOG_INFO ("UE 1 node id = [" << ueNodes.Get (0)->GetId () << "]");
   NS_LOG_INFO ("UE 2 node id = [" << ueNodes.Get (1)->GetId () << "]");
   NS_LOG_INFO ("UE 3 node id = [" << ueNodes.Get (2)->GetId () << "]");
-  NS_LOG_INFO ("UE 4 node id = [" << ueNodes.Get (3)->GetId () << "]");
 
   //Position of the nodes
   Ptr<ListPositionAllocator> positionAllocUe1 = CreateObject<ListPositionAllocator> ();
-  positionAllocUe1->Add (Vector (0.0, 0.0, 1.5));
+  positionAllocUe1->Add (Vector (0.0, 0.0, 0.0));
   Ptr<ListPositionAllocator> positionAllocUe2 = CreateObject<ListPositionAllocator> ();
-  positionAllocUe2->Add (Vector (20.0, 0.0, 1.5));
+  positionAllocUe2->Add (Vector (20.0, 0.0, 0.0));
   Ptr<ListPositionAllocator> positionAllocUe3 = CreateObject<ListPositionAllocator> ();
-  positionAllocUe3->Add (Vector (2.0, 0.0, 1.5));
-  Ptr<ListPositionAllocator> positionAllocUe4 = CreateObject<ListPositionAllocator> ();
-  positionAllocUe4->Add (Vector (100.0, 0.0, 1.5)); 
+  positionAllocUe3->Add (Vector (500.0, 0.0, 0.0)); 
 
   //Install mobility
 
@@ -137,15 +134,9 @@ int main (int argc, char *argv[])
   mobilityUe2.Install (ueNodes.Get (1));
 
   MobilityHelper mobilityUe3;
-  mobilityUe1.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  mobilityUe1.SetPositionAllocator (positionAllocUe3);
-  mobilityUe1.Install (ueNodes.Get (2));
-
-  MobilityHelper mobilityUe4;
-  mobilityUe2.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  mobilityUe2.SetPositionAllocator (positionAllocUe4);
-  mobilityUe2.Install (ueNodes.Get (3));
-
+  mobilityUe3.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  mobilityUe3.SetPositionAllocator (positionAllocUe3);
+  mobilityUe3.Install (ueNodes.Get (2));
 
   //Install LTE UE devices to the nodes
   NetDeviceContainer ueDevs = lteHelper->InstallUeDevice (ueNodes);
@@ -203,22 +194,7 @@ int main (int argc, char *argv[])
   Address localAddress = InetSocketAddress (Ipv4Address::GetAny (), 8000);
   Ptr<LteSlTft> tft = Create<LteSlTft> (LteSlTft::BIDIRECTIONAL, groupAddress4, groupL2Address);
 
-  // ///*** Configure applications ***///
-
-  // //Set Application in the UEs
-  // OnOffHelper sidelinkClient ("ns3::UdpSocketFactory", remoteAddress);
-  // sidelinkClient.SetConstantRate (DataRate ("16kb/s"), 200);
-
-  // ApplicationContainer clientApps = sidelinkClient.Install (ueNodes.Get (0));
-  // //onoff application will send the first packet at :
-  // //(2.9 (App Start Time) + (1600 (Pkt size in bits) / 16000 (Data rate)) = 3.0 sec
-  // clientApps.Start (slBearersActivationTime + Seconds (0.9));
-  // clientApps.Stop (simTime - slBearersActivationTime + Seconds (1.0));
-
-  // ApplicationContainer serverApps;
-  // PacketSinkHelper sidelinkSink ("ns3::UdpSocketFactory", localAddress);
-  // serverApps = sidelinkSink.Install (ueNodes.Get (1));
-  // serverApps.Start (Seconds (2.0));
+  ///*** Configure applications ***///
 
   //Set Sidelink bearers
   proseHelper->ActivateSidelinkBearer (slBearersActivationTime, ueDevs, tft);
@@ -237,17 +213,13 @@ int main (int argc, char *argv[])
   consumerHelper.SetPrefix("/prefix");
   consumerHelper.SetAttribute("Frequency", StringValue("1")); // 10 interests a second
   consumerHelper.Install(ueNodes.Get(0));                        // first node
-
+  //consumerHelper.Install(ueNodes.Get(1));
   // Producer
   ::ns3::ndn::AppHelper producerHelper("ns3::ndn::Producer");
   // Producer will reply to all requests starting with /prefix
   producerHelper.SetPrefix("/prefix");
   producerHelper.SetAttribute("PayloadSize", StringValue("1024"));
-  producerHelper.Install(ueNodes.Get(1)); // last node
-
-  //Forwarder
-  
-
+  producerHelper.Install(ueNodes.Get(2)); // last node
 
   Simulator::Stop (Seconds(20));
 
