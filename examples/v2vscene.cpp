@@ -13,15 +13,6 @@
 
 using namespace ns3;
 
-/*
- * The topology is the following:
- *
- *          UE1..........(20 m)..........UE2
- *   (0.0, 0.0, 1.5)            (20.0, 0.0, 1.5)
- *
- * Please refer to the Sidelink section of the LTE user documentation for more details.
- *
- */
 
 NS_LOG_COMPONENT_DEFINE ("LteSlOutOfCovrg");
 
@@ -119,7 +110,7 @@ int main (int argc, char *argv[])
   Ptr<ListPositionAllocator> positionAllocUe2 = CreateObject<ListPositionAllocator> ();
   positionAllocUe2->Add (Vector (20.0, 0.0, 0.0));
   Ptr<ListPositionAllocator> positionAllocUe3 = CreateObject<ListPositionAllocator> ();
-  positionAllocUe3->Add (Vector (500.0, 0.0, 0.0)); 
+  positionAllocUe3->Add (Vector (100.0, 0.0, 0.0));
 
   //Install mobility
 
@@ -198,20 +189,20 @@ int main (int argc, char *argv[])
 
   //Set Sidelink bearers
   proseHelper->ActivateSidelinkBearer (slBearersActivationTime, ueDevs, tft);
+  
   ///*** End of application configuration ***///
-
   ::ns3::ndn::StackHelper helper;
   helper.SetDefaultRoutes(true);
   helper.InstallAll();
 
     //* Choosing forwarding strategy *//
-  ns3::ndn::StrategyChoiceHelper::InstallAll("/","/localhost/nfd/strategy/DirectedGeocastStrategy");
+  ns3::ndn::StrategyChoiceHelper::InstallAll("/", "/localhost/nfd/strategy/directed-geocast");
 
   // Consumer
   ::ns3::ndn::AppHelper consumerHelper("ns3::ndn::ConsumerCbr");
   // Consumer will request /prefix/0, /prefix/1, ...
   consumerHelper.SetPrefix("/prefix");
-  consumerHelper.SetAttribute("Frequency", StringValue("1")); // 10 interests a second
+  consumerHelper.SetAttribute("Frequency", StringValue("0.1")); // 10 interests a second
   consumerHelper.Install(ueNodes.Get(0));                        // first node
   //consumerHelper.Install(ueNodes.Get(1));
   // Producer
