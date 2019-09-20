@@ -84,7 +84,7 @@ DirectedGeocastStrategy::afterReceiveInterest(const FaceEndpoint& ingress, const
         wouldViolateScope(ingress.face, interest, outFace)) {
       continue;
     }
-
+    NFD_LOG_DEBUG("the link type is " << outFace.getLinkType());
     if (outFace.getLinkType() != ndn::nfd::LINK_TYPE_AD_HOC) {
       // for non-ad hoc links, send interest as usual
       this->sendInterest(pitEntry, FaceEndpoint(outFace, 0), interest);
@@ -156,22 +156,27 @@ DirectedGeocastStrategy::afterReceiveLoopedInterest(const FaceEndpoint& ingress,
     NFD_LOG_DEBUG("Got looped interest, PitInfo is missing");
     return;
   }
-
   auto item = pi->queue.find(ingress.face.getId());
-  if (item == pi->queue.end()) {
+  if (item == pi->queue.end()){
+  if (shouldCancelTransmission(pitEntry, interest)==1) {
+    item->second.cancel();
+    NFD_LOG_DEBUG("Canceling transmission of interest \n " << interest << "\n via=" << ingress.face.getId());
+    
+
+    //don't do anything to the PIT entry (let it expire as usual)
+   
+  }
+  }
+  
+  /*if (item == pi->queue.end()) {
     NFD_LOG_DEBUG("Got looped interest, but no event was scheduled for the face");
     return;
-  }
+  }*/
 
-  if (shouldCancelTransmission(pitEntry, interest)) {
-    item->second.cancel();
 
-    // don't do anything to the PIT entry (let it expire as usual)
-    NFD_LOG_DEBUG("Canceling transmission of " << interest << " via=" << ingress.face.getId());
-  }
 }
 
-ndn::optional<ns3::Vector>
+ndn::optional<ns3::Vector3D>
 DirectedGeocastStrategy::getSelfPosition()
 {
   auto node = ns3::NodeList::GetNode(ns3::Simulator::GetContext());
@@ -235,35 +240,40 @@ DirectedGeocastStrategy::shouldCancelTransmission(const pit::Entry& oldPitEntry,
   auto oldFrom = extractPositionFromTag(oldPitEntry.getInterest());
   auto newFrom = extractPositionFromTag(newInterest);
   
-  //distance calculation
-  double distanceToLasthop = (self->GetLength() - newFrom->GetLength());
+  /* distance calculation
+  double distanceToLasthop = (newFrom->GetLength() - self->GetLength()) ;
   NFD_LOG_DEBUG("distance to last hop is " << distanceToLasthop);
   double distanceToOldhop = (self->GetLength() - oldFrom->GetLength());
   double distanceBetweenLasthops = (newFrom->GetLength() - oldFrom->GetLength());
 
-  //Angle calculation
+  // Angle calculation
   double Angle_rad = acos(pow(distanceToOldhop,2) + pow(distanceBetweenLasthops,2) - pow(distanceToLasthop,2) )/(2 * distanceToOldhop * distanceBetweenLasthops);
   double Angle_Deg = Angle_rad * 180 / 3.141592;
 
   // Projection Calculation
   double cosine_Angle_at_self = (pow (distanceToOldhop,2) + pow (distanceToLasthop,2) - pow (distanceBetweenLasthops,2))/(2 * distanceToOldhop * distanceToLasthop );
   double projection = distanceToLasthop * cosine_Angle_at_self;
-
-  if (!self || !oldFrom || !newFrom) {
-    NFD_LOG_DEBUG("self, oldFrom, or newFrom position is missing");
-    return false;
-  }
+  bool status = false;
+   if (!self || !oldFrom || !newFrom) {
+    NFD_LOG_DEBUG("self, oldFrom, or newFrom position is missing hence not cancelled");
+    return status;
+  } 
+  
   if (Angle_Deg >= 90){
+  
    NFD_LOG_DEBUG("Interest need not be cancelled");
-   return true;
+  if (projection < distanceToOldhop ){
+  NFD_LOG_DEBUG("Interest need to be cancelled");
+  return status = true;
   }
-  else if (projection > distanceToOldhop ){
-  NFD_LOG_DEBUG("Interest need not be cancelled");
+  else
+  {
+    return status;
+  }
+  
+  }*/
   return true;
-  }
-  return false;
 }
-
 
 } // namespace fw
 } // namespace nfd
