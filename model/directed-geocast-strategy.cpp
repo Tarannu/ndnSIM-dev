@@ -39,256 +39,263 @@
 #include "math.h"
 #include "ns3/vector.h"
 #include <chrono>
-#include<cmath>
+#include "ns3/random-variable-stream.h"
+#include "ns3/rng-seed-manager.h"
+#include "ns3/double.h"
+#include <ctime>
+#include <cstdlib>
 namespace nfd {
 namespace fw {
 
-NFD_REGISTER_STRATEGY(DirectedGeocastStrategy);
+        NFD_REGISTER_STRATEGY(DirectedGeocastStrategy);
 
-NFD_LOG_INIT(DirectedGeocastStrategy);
+        NFD_LOG_INIT(DirectedGeocastStrategy);
 
-DirectedGeocastStrategy::DirectedGeocastStrategy(Forwarder& forwarder, const Name& name)
-  : Strategy(forwarder)
-{
-  ParsedInstanceName parsed = parseInstanceName(name);
-  if (!parsed.parameters.empty()) {
-    NDN_THROW(std::invalid_argument("DirectedGeocastStrategy does not accept parameters"));
-  }
-  if (parsed.version && *parsed.version != getStrategyName()[-1].toVersion()) {
-    NDN_THROW(std::invalid_argument(
-      "DirectedGeocastStrategy does not support version " + to_string(*parsed.version)));
-  }
-  this->setInstanceName(makeInstanceName(name, getStrategyName()));
-}
+        DirectedGeocastStrategy::DirectedGeocastStrategy(Forwarder &forwarder, const Name &name)
+                : Strategy(forwarder) {
+            ParsedInstanceName parsed = parseInstanceName(name);
+            if (!parsed.parameters.empty()) {
+                NDN_THROW(std::invalid_argument("DirectedGeocastStrategy does not accept parameters"));
+            }
+            if (parsed.version && *parsed.version != getStrategyName()[-1].toVersion()) {
+                NDN_THROW(std::invalid_argument(
+                        "DirectedGeocastStrategy does not support version " + to_string(*parsed.version)));
+            }
+            this->setInstanceName(makeInstanceName(name, getStrategyName()));
+        }
 
-const Name&
-DirectedGeocastStrategy::getStrategyName()
-{
-  static Name strategyName("/localhost/nfd/strategy/directed-geocast/%FD%01");
-  return strategyName;
-}
+        const Name &
+        DirectedGeocastStrategy::getStrategyName() {
+            static Name strategyName("/localhost/nfd/strategy/directed-geocast/%FD%01");
+            return strategyName;
+        }
 
-void
-DirectedGeocastStrategy::afterReceiveInterest(const FaceEndpoint& ingress, const Interest& interest,
-                                              const shared_ptr<pit::Entry>& pitEntry)
-{
-  const fib::Entry& fibEntry = this->lookupFib(*pitEntry);
-  const fib::NextHopList& nexthops = fibEntry.getNextHops();
+        void
+        DirectedGeocastStrategy::afterReceiveInterest(const FaceEndpoint &ingress, const Interest &interest,
+                                                      const shared_ptr <pit::Entry> &pitEntry) {
+            const fib::Entry &fibEntry = this->lookupFib(*pitEntry);
+            const fib::NextHopList &nexthops = fibEntry.getNextHops();
 
-  int nEligibleNextHops = 0;
+            int nEligibleNextHops = 0;
 
-  for (const auto& nexthop : nexthops) {
-    Face& outFace = nexthop.getFace();
-    NDN_LOG_DEBUG(nexthop.getFace().getRemoteUri() << ", " << nexthop.getFace().getLocalUri());
+            for (const auto &nexthop : nexthops) {
+                Face &outFace = nexthop.getFace();
+                NDN_LOG_DEBUG(nexthop.getFace().getRemoteUri() << ", " << nexthop.getFace().getLocalUri());
 
-    if ((outFace.getId() == ingress.face.getId() && outFace.getLinkType() != ndn::nfd::LINK_TYPE_AD_HOC) ||
-        wouldViolateScope(ingress.face, interest, outFace)) {
-      continue;
-    }
-    NFD_LOG_DEBUG("the link type is " << outFace.getLinkType());
-    if (outFace.getLinkType() != ndn::nfd::LINK_TYPE_AD_HOC) {
-      // for non-ad hoc links, send interest as usual
-      this->sendInterest(pitEntry, FaceEndpoint(outFace, 0), interest);
-      NFD_LOG_DEBUG(interest << " from=" << ingress << " pitEntry-to=" << outFace.getId());
-    }
-    else {
-      std::weak_ptr<pit::Entry> pitEntryWeakPtr = pitEntry;
-      auto faceId = ingress.face.getId();
+                if ((outFace.getId() == ingress.face.getId() && outFace.getLinkType() != ndn::nfd::LINK_TYPE_AD_HOC) ||
+                    wouldViolateScope(ingress.face, interest, outFace)) {
+                    continue;
+                }
+                NFD_LOG_DEBUG("the link type is " << outFace.getLinkType());
+                if (outFace.getLinkType() != ndn::nfd::LINK_TYPE_AD_HOC) {
+                    // for non-ad hoc links, send interest as usual
+                    this->sendInterest(pitEntry, FaceEndpoint(outFace, 0), interest);
+                    NFD_LOG_DEBUG(interest << " from=" << ingress << " pitEntry-to=" << outFace.getId());
+                } else {
+                    std::weak_ptr<pit::Entry> pitEntryWeakPtr = pitEntry;
+                    auto faceId = ingress.face.getId();
 
-      // if transmission was already scheduled, ignore the interest
+                    // if transmission was already scheduled, ignore the interest
 
-      PitInfo* pi = pitEntry->insertStrategyInfo<PitInfo>().first;
-      if (pi->queue.find(faceId) != pi->queue.end()) {
-        NFD_LOG_DEBUG(interest << " already scheduled pitEntry-to=" << outFace.getId());
-        continue;
-      }
+                    PitInfo *pi = pitEntry->insertStrategyInfo<PitInfo>().first;
+                    if (pi->queue.find(faceId) != pi->queue.end()) {
+                        NFD_LOG_DEBUG(interest << " already scheduled pitEntry-to=" << outFace.getId());
+                        continue;
+                    }
 
-      // calculate time to delay interest
-      auto delay = calculateDelay(interest);
-      NFD_LOG_DEBUG("Delaying by " << delay);
-      if (delay > 0_s) {
-        scheduler::ScopedEventId event = getScheduler().schedule(delay, [this, pitEntryWeakPtr,
-                                                                         faceId, interest] {
-            auto pitEntry = pitEntryWeakPtr.lock();
-            auto outFace = getFaceTable().get(faceId);
-            if (pitEntry == nullptr || outFace == nullptr) {
-              // something bad happened to the PIT entry, nothing to process
-              return;
+                    // calculate time to delay interest
+                    auto delay = calculateDelay(interest);
+                    NFD_LOG_DEBUG("Delaying by " << delay);
+                    if (delay > 0_s) {
+                        scheduler::ScopedEventId event = getScheduler().schedule(delay, [this, pitEntryWeakPtr,
+                                faceId, interest] {
+                            auto pitEntry = pitEntryWeakPtr.lock();
+                            auto outFace = getFaceTable().get(faceId);
+                            if (pitEntry == nullptr || outFace == nullptr) {
+                                // something bad happened to the PIT entry, nothing to process
+                                return;
+                            }
+
+                            NFD_LOG_DEBUG("Sending out the delayed " << interest << " pitEntry-to=" << faceId);
+                            this->sendInterest(pitEntry, FaceEndpoint(*outFace, 0), interest);
+                        });
+
+                        // save `event` into pitEntry
+                        pi->queue.emplace(faceId, std::move(event));
+                    } else {
+                        NFD_LOG_DEBUG("Could not determine to delay interest, sending right away");
+                        NFD_LOG_DEBUG(interest << " from=" << ingress << " pitEntry-to=" << outFace.getId());
+                        this->sendInterest(pitEntry, FaceEndpoint(outFace, 0), interest);
+                    }
+                }
+
+                ++nEligibleNextHops;
             }
 
-            NFD_LOG_DEBUG("Sending out the delayed " << interest << " pitEntry-to=" << faceId);
-            this->sendInterest(pitEntry, FaceEndpoint(*outFace, 0), interest);
-          });
+            if (nEligibleNextHops == 0) {
+                NFD_LOG_DEBUG(interest << " from=" << ingress << " noNextHop");
 
-        // save `event` into pitEntry
-        pi->queue.emplace(faceId, std::move(event));
-      }
-      else {
-        NFD_LOG_DEBUG("Could not determine to delay interest, sending right away");
-        NFD_LOG_DEBUG(interest << " from=" << ingress << " pitEntry-to=" << outFace.getId());
-        this->sendInterest(pitEntry, FaceEndpoint(outFace, 0), interest);
-      }
-    }
+                // don't support NACKs (for now or ever)
 
-    ++nEligibleNextHops;
-  }
+                // lp::NackHeader nackHeader;
+                // nackHeader.setReason(lp::NackReason::NO_ROUTE);
+                // this->sendNack(pitEntry, ingress, nackHeader);
 
-  if (nEligibleNextHops == 0) {
-    NFD_LOG_DEBUG(interest << " from=" << ingress << " noNextHop");
+                this->rejectPendingInterest(pitEntry);
+            }
+        }
 
-    // don't support NACKs (for now or ever)
+        void
+        DirectedGeocastStrategy::afterReceiveLoopedInterest(const FaceEndpoint &ingress, const Interest &interest,
+                                                            pit::Entry &pitEntry) {
+            // determine if interest needs to be cancelled or not
 
-    // lp::NackHeader nackHeader;
-    // nackHeader.setReason(lp::NackReason::NO_ROUTE);
-    // this->sendNack(pitEntry, ingress, nackHeader);
+            PitInfo *pi = pitEntry.getStrategyInfo<PitInfo>();
+            if (pi == nullptr) {
+                NFD_LOG_DEBUG("Got looped interest, PitInfo is missing");
+                return;
+            }
+            auto item = pi->queue.find(ingress.face.getId());
 
-    this->rejectPendingInterest(pitEntry);
-  }
-}
+            if (item == pi->queue.end()) {
+                NFD_LOG_DEBUG("Got looped interest, but no event was scheduled for the face");
+                return;
+            }
+            //NFD_LOG_DEBUG("Pitentry is" << pitEntry);
+            if (shouldCancelTransmission(pitEntry, interest) == 1) {
+                NFD_LOG_DEBUG(
+                        "Canceling transmission of interest \n " << interest << "\n via=" << ingress.face.getId());
+                item->second.cancel();
 
-void
-DirectedGeocastStrategy::afterReceiveLoopedInterest(const FaceEndpoint& ingress, const Interest& interest,
-                                                    pit::Entry& pitEntry)
-{
-  // determine if interest needs to be cancelled or not
+                //don't do anything to the PIT entry (let it expire as usual)
 
-  PitInfo* pi = pitEntry.getStrategyInfo<PitInfo>();
-  if (pi == nullptr) {
-    NFD_LOG_DEBUG("Got looped interest, PitInfo is missing");
-    return;
-  }
-  auto item = pi->queue.find(ingress.face.getId());
-
-    if (item == pi->queue.end()) {
-        NFD_LOG_DEBUG("Got looped interest, but no event was scheduled for the face");
-        return;
-    }
-  //NFD_LOG_DEBUG("Pitentry is" << pitEntry);
-  if (shouldCancelTransmission(pitEntry, interest)==1) {
-    NFD_LOG_DEBUG("Canceling transmission of interest \n " << interest << "\n via=" << ingress.face.getId());
-    item->second.cancel();
-
-    //don't do anything to the PIT entry (let it expire as usual)
-   
-  }
-  
+            }
 
 
+        }
 
-}
+        ndn::optional <ns3::Vector>
+        DirectedGeocastStrategy::getSelfPosition() {
+            auto node = ns3::NodeList::GetNode(ns3::Simulator::GetContext());
+            if (node == nullptr) {
+                return nullopt;
+            }
 
-ndn::optional<ns3::Vector>
-DirectedGeocastStrategy::getSelfPosition()
-{
-  auto node = ns3::NodeList::GetNode(ns3::Simulator::GetContext());
-  if (node == nullptr) {
-    return nullopt;
-  }
+            auto mobility = node->GetObject<ns3::MobilityModel>();
+            if (mobility == nullptr) {
+                return nullopt;
+            }
+            return mobility->GetPosition();
 
-  auto mobility = node->GetObject<ns3::MobilityModel>();
-  if (mobility == nullptr) {
-    return nullopt;
-  }
-  return mobility->GetPosition();
+        }
 
-}
+        ndn::optional <ns3::Vector>
+        DirectedGeocastStrategy::extractPositionFromTag(const Interest &interest) {
+            auto tag = interest.getTag<ndn::lp::GeoTag>();
+            NFD_LOG_DEBUG("the tag is " << tag);
+            if (tag == nullptr) {
+                return nullopt;
+            }
 
-ndn::optional<ns3::Vector>
-DirectedGeocastStrategy::extractPositionFromTag(const Interest& interest)
-{
-  auto tag = interest.getTag<ndn::lp::GeoTag>();
-  NFD_LOG_DEBUG("the tag is " << tag);
-  if (tag == nullptr) {
-    return nullopt;
-  }
+            auto pos = tag->getPos();
+            //NFD_LOG_DEBUG("the tagposition is " << pos);
+            return ns3::Vector(std::get<0>(pos), std::get<1>(pos), std::get<2>(pos));
+        }
 
-  auto pos = tag->getPos();
-  //NFD_LOG_DEBUG("the tagposition is " << pos);
-  return ns3::Vector(std::get<0>(pos), std::get<1>(pos), std::get<2>(pos));
-}
+        time::nanoseconds
+        DirectedGeocastStrategy::calculateDelay(const Interest &interest) {
+            auto self = getSelfPosition();
+            auto from = extractPositionFromTag(interest);
+            NFD_LOG_DEBUG("self " << self->GetLength());
+            if (!self || !from) {
+                NFD_LOG_DEBUG("self or from position is missing");
+                return 0_s;
+            }
 
-time::nanoseconds
-DirectedGeocastStrategy::calculateDelay(const Interest& interest)
-{
-  auto self = getSelfPosition(); 
-  auto from = extractPositionFromTag(interest);
-    NFD_LOG_DEBUG("self " << self->GetLength());
-    //Proyash: from is null here
-  if (!self || !from) {
-    NFD_LOG_DEBUG("self or from position is missing");
-    return 0_s;
-  }
+            double distance = abs(self->GetLength() - from->GetLength());
+           // std::srand(time(0));
+            double minTime = 0.002;
+            double maxDist = 1000;
+            double maxTime = 2;
+            if (distance < maxDist) {
+                //auto waitTime = time::duration_cast<time::nanoseconds>(time::duration<double>{(minTime * (maxDist-distance)/maxDist)});
+                double randomNumber = static_cast <double> (rand()) / (static_cast <double> (RAND_MAX));
+                ns3::RngSeedManager::SetSeed (3);
+                ns3::SeedManager::SetRun (7);
+                double min = 0.0;
+                double max = 2.0;
 
-  double distance = abs(self->GetLength() - from->GetLength());
+                ns3::Ptr<ns3::UniformRandomVariable> x = ns3::CreateObject<ns3::UniformRandomVariable> ();
+                x->SetAttribute ("Min", ns3::DoubleValue(min));
+                x->SetAttribute ("Max", ns3::DoubleValue(max));
+                auto myRandomNo = x->GetValue ();
+                //float randomNumber = 0.003;
+                NFD_LOG_DEBUG("the random number is " << myRandomNo);
 
-  double minTime = 0.002; double maxDist = 1000; double maxTime = 2;
-  if (distance < maxDist){
-    //auto waitTime = time::duration_cast<time::nanoseconds>(time::duration<double>{(minTime * (maxDist-distance)/maxDist)});
-    float randomNumber = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
-      NFD_LOG_DEBUG("the random number is "<<randomNumber);
+                auto waitTime = time::duration_cast<time::nanoseconds>(time::duration < double >
+                                                                       {((maxTime * (maxDist - distance) / maxDist) +
+                                                                         minTime + myRandomNo)});
+                // auto waitTime = ((maxTime * (maxDist-distance)/maxDist) + minTime);
+                NFD_LOG_DEBUG("distance to last hop is " << distance << " meter");
+                //NFD_LOG_DEBUG("distance to last hop is "<<distance<<" meter");
+                NFD_LOG_DEBUG("self is at: " << self->GetLength() << " meter");
+                NFD_LOG_DEBUG("from is at: " << from->GetLength() << " meter");
+                NFD_LOG_DEBUG("self and from are within max limit hence delay is: " << waitTime);
+                return waitTime;
+            } else {
+                NFD_LOG_DEBUG("Minimum Delay added is: 10ms ");
+                return 10_ms;
+            }
+        }
 
-    auto waitTime = time::duration_cast<time::nanoseconds>(time::duration<double>{((maxTime * (maxDist-distance)/maxDist) + minTime + randomNumber)});
-     // auto waitTime = ((maxTime * (maxDist-distance)/maxDist) + minTime);
-    NFD_LOG_DEBUG("distance to last hop is "<<distance<<" meter");
-    NFD_LOG_DEBUG("distance to last hop is "<<distance<<" meter");
-    NFD_LOG_DEBUG("self is at: "<<self->GetLength()<<" meter");
-    NFD_LOG_DEBUG("from is at: "<<from->GetLength()<<" meter");
-    NFD_LOG_DEBUG("self and from are within max limit hence delay is: " << waitTime );
-    return waitTime;
-  } 
+        bool
+        DirectedGeocastStrategy::shouldCancelTransmission(const pit::Entry &oldPitEntry, const Interest &newInterest) {
+            NFD_LOG_DEBUG("Entered into Should cancel tranmission ");
+            auto self = getSelfPosition();
+            auto oldFrom = extractPositionFromTag(oldPitEntry.getInterest());
+            auto newFrom = extractPositionFromTag(newInterest);
 
-  else{
-    NFD_LOG_DEBUG("Minimum Delay added is: 10ms ");
-    return 10_ms;
-  }
-}
+            if (!self || !oldFrom || !newFrom) {
+                NFD_LOG_DEBUG("self, oldFrom, or newFrom position is missing");
+                return false;
+            }
 
-bool
-DirectedGeocastStrategy::shouldCancelTransmission(const pit::Entry& oldPitEntry, const Interest& newInterest)
-{
-   NFD_LOG_DEBUG("Entered into Should cancel tranmission ");
-  auto self = getSelfPosition();
-  auto oldFrom = extractPositionFromTag(oldPitEntry.getInterest());
-  auto newFrom = extractPositionFromTag(newInterest);
+            //oldFrom->GetLength() is the problem, it does not contain any value
+            //NFD_LOG_DEBUG("self, oldform and newform are " << self->GetLength() << " " << newFrom->GetLength() << " " << oldFrom->GetLength());
+            //distance calculation
+            double distanceToLasthop = (self->GetLength() - newFrom->GetLength());
+            NFD_LOG_DEBUG("distance to last hop is " << distanceToLasthop);
+            double distanceToOldhop = (self->GetLength() - oldFrom->GetLength());
+            NFD_LOG_DEBUG("distance to old hop is " << distanceToOldhop);
+            double distanceBetweenLasthops = (newFrom->GetLength() - oldFrom->GetLength());
+            NFD_LOG_DEBUG("distance between last hops is " << distanceBetweenLasthops);
 
-    if (!self || !oldFrom || !newFrom) {
-        NFD_LOG_DEBUG("self, oldFrom, or newFrom position is missing");
-        return false ;
-    }
+            //Angle calculation
+            double Angle_rad = acos(
+                    (pow(distanceToOldhop, 2) + pow(distanceBetweenLasthops, 2) - pow(distanceToLasthop, 2)) /
+                    (2 * distanceToOldhop * distanceBetweenLasthops));
+            //double Angle_Deg = Angle_rad * 180 / 3.141592;
+            double Angle_Deg = 91.00;
+            NFD_LOG_DEBUG("angle is " << Angle_Deg);
 
-  //oldFrom->GetLength() is the problem, it does not contain any value
-  //NFD_LOG_DEBUG("self, oldform and newform are " << self->GetLength() << " " << newFrom->GetLength() << " " << oldFrom->GetLength());
-  //distance calculation
-  double distanceToLasthop = (self->GetLength() - newFrom->GetLength());
-  NFD_LOG_DEBUG("distance to last hop is " << distanceToLasthop);
-  double distanceToOldhop = (self->GetLength() - oldFrom->GetLength());
-NFD_LOG_DEBUG("distance to old hop is " << distanceToOldhop);
-  double distanceBetweenLasthops = (newFrom->GetLength() - oldFrom->GetLength());
-NFD_LOG_DEBUG("distance between last hops is " << distanceBetweenLasthops);
+            // Projection Calculation
+            double cosine_Angle_at_self =
+                    (pow(distanceToOldhop, 2) + pow(distanceToLasthop, 2) - pow(distanceBetweenLasthops, 2)) /
+                    (2 * distanceToOldhop * distanceToLasthop);
+            double projection = abs(distanceToLasthop * cosine_Angle_at_self);
+            NFD_LOG_DEBUG("projection is " << projection);
+            //bool state;
 
-  //Angle calculation
-  double Angle_rad = acos((pow(distanceToOldhop,2) + pow(distanceBetweenLasthops,2) - pow(distanceToLasthop,2) )/(2 * distanceToOldhop * distanceBetweenLasthops));
-  //double Angle_Deg = Angle_rad * 180 / 3.141592;
-  double Angle_Deg = 91.00;
-  NFD_LOG_DEBUG("angle is " << Angle_Deg);
+            if (Angle_Deg >= 90) {
+                NFD_LOG_DEBUG("Interest need be cancelled");
+                return true;
+            } else if (projection > distanceToOldhop) {
+                NFD_LOG_DEBUG("Interest need to be cancelled");
+                return true;
+            }
 
-  // Projection Calculation
-  double cosine_Angle_at_self = (pow (distanceToOldhop,2) + pow (distanceToLasthop,2) - pow (distanceBetweenLasthops,2))/(2 * distanceToOldhop * distanceToLasthop );
-  double projection = abs(distanceToLasthop * cosine_Angle_at_self);
-  NFD_LOG_DEBUG("projection is " << projection);
-  //bool state;
-
-  if (Angle_Deg >= 90){
-   NFD_LOG_DEBUG("Interest need be cancelled");
-   return true;
-  }
-  else if (projection > distanceToOldhop ){
-  NFD_LOG_DEBUG("Interest need to be cancelled");
-  return true;
-  } 
-  
-  return false;
-}
+            return false;
+        }
 
 
 } // namespace fw
