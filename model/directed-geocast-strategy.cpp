@@ -254,18 +254,21 @@ namespace fw {
             auto self = getSelfPosition();
             auto oldFrom = extractPositionFromTag(oldPitEntry.getInterest());
             auto newFrom = extractPositionFromTag(newInterest);
+            
 
             if (!self || !oldFrom || !newFrom) {
                 NFD_LOG_DEBUG("self, oldFrom, or newFrom position is missing");
                 return false;
             }
 
-            //oldFrom->GetLength() is the problem, it does not contain any value
-            //NFD_LOG_DEBUG("self, oldform and newform are " << self->GetLength() << " " << newFrom->GetLength() << " " << oldFrom->GetLength());
+            
             //distance calculation
             double distanceToLasthop = (self->GetLength() - newFrom->GetLength());
+            NFD_LOG_DEBUG("self is at distance " << self->GetLength());
+            NFD_LOG_DEBUG("new from is at distance " << newFrom->GetLength());
             NFD_LOG_DEBUG("distance to last hop is " << distanceToLasthop);
             double distanceToOldhop = (self->GetLength() - oldFrom->GetLength());
+            NFD_LOG_DEBUG("old is at distance " << oldFrom->GetLength());
             NFD_LOG_DEBUG("distance to old hop is " << distanceToOldhop);
             double distanceBetweenLasthops = (newFrom->GetLength() - oldFrom->GetLength());
             NFD_LOG_DEBUG("distance between last hops is " << distanceBetweenLasthops);
@@ -274,20 +277,22 @@ namespace fw {
             double Angle_rad = acos(
                     (pow(distanceToOldhop, 2) + pow(distanceBetweenLasthops, 2) - pow(distanceToLasthop, 2)) /
                     (2 * distanceToOldhop * distanceBetweenLasthops));
+                    NFD_LOG_DEBUG("Angle rad is " << Angle_rad);
             //double Angle_Deg = Angle_rad * 180 / 3.141592;
             double Angle_Deg = 91.00;
-            NFD_LOG_DEBUG("angle is " << Angle_Deg);
+            NFD_LOG_DEBUG("Angle is " << Angle_Deg);
 
             // Projection Calculation
             double cosine_Angle_at_self =
                     (pow(distanceToOldhop, 2) + pow(distanceToLasthop, 2) - pow(distanceBetweenLasthops, 2)) /
                     (2 * distanceToOldhop * distanceToLasthop);
+                    NFD_LOG_DEBUG("Cosine angle at self for projection is " << cosine_Angle_at_self);
             double projection = abs(distanceToLasthop * cosine_Angle_at_self);
             NFD_LOG_DEBUG("projection is " << projection);
             //bool state;
 
             if (Angle_Deg >= 90) {
-                NFD_LOG_DEBUG("Interest need be cancelled");
+                NFD_LOG_DEBUG("Interest need to be cancelled");
                 return true;
             } else if (projection > distanceToOldhop) {
                 NFD_LOG_DEBUG("Interest need to be cancelled");
