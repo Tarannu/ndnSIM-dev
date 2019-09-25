@@ -278,8 +278,8 @@ namespace fw {
                     (pow(distanceToOldhop, 2) + pow(distanceBetweenLasthops, 2) - pow(distanceToLasthop, 2)) /
                     (2 * distanceToOldhop * distanceBetweenLasthops));
                     NFD_LOG_DEBUG("Angle rad is " << Angle_rad);
-            //double Angle_Deg = Angle_rad * 180 / 3.141592;
-            double Angle_Deg = 91.00;
+            double Angle_Deg = Angle_rad * 180 / 3.141592;
+            //double Angle_Deg = 91.00;
             NFD_LOG_DEBUG("Angle is " << Angle_Deg);
 
             // Projection Calculation
