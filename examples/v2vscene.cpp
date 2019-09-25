@@ -235,6 +235,8 @@ int main (int argc, char *argv[])
   
   //* Choosing forwarding strategy *//
   ns3::ndn::StrategyChoiceHelper::InstallAll("/", "/localhost/nfd/strategy/directed-geocast");
+    
+ //Will add cost231Propagationloss model loss here for and packet loss
  
   // Consumer
   ::ns3::ndn::AppHelper consumerHelper("ns3::ndn::ConsumerCbr");
