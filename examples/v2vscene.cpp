@@ -8,7 +8,7 @@
 #include "ns3/config-store.h"
 #include <cfloat>
 #include <sstream>
-
+#include <cmath>
 #include "ns3/ndnSIM-module.h"
 
 using namespace ns3;
@@ -111,9 +111,12 @@ int main (int argc, char *argv[])
   positionAllocUe2->Add (Vector (400.0, 0.0, 0.0));
   Ptr<ListPositionAllocator> positionAllocUe3 = CreateObject<ListPositionAllocator> ();
   positionAllocUe3->Add (Vector (500.0, 0.0, 0.0));
-    Ptr<ListPositionAllocator> positionAllocUe4 = CreateObject<ListPositionAllocator> ();
-    positionAllocUe4->Add (Vector (1000.0, 0.0, 0.0));
-
+  Ptr<ListPositionAllocator> positionAllocUe4 = CreateObject<ListPositionAllocator> ();
+  positionAllocUe4->Add (Vector (1000, 0.0, 0.0));
+  /*uint32_t limit = 1000;
+  for (double i = 0; i < limit; ++i) {
+  positionAllocUe4->Add (Vector ([i], 0.0, 0.0));
+  }*/
   //Install mobility
 
   MobilityHelper mobilityUe1;
@@ -201,26 +204,52 @@ int main (int argc, char *argv[])
   ::ns3::ndn::StackHelper helper;
   helper.SetDefaultRoutes(true);
   helper.InstallAll();
+  
+  
+  //adding free space path loss trace
+    auto ueNode = ueNodes.Get (3);
+    auto mobility = ueNode->GetObject<ns3::MobilityModel>();
+    auto point = mobility->GetPosition();//add for loop for changing distance
+    double distance= point.GetLength();
+    double lambda =(pow(30,8)/(double)ulEarfcn);
+    double loss = 20*log10(4*3.1416*(distance/lambda));// check the power loss in dB
+    std::cout << "\nFor Producer distance "<<distance<<"m loss in db is:  " << loss <<"dB\n";
+  /*adding power trace with iterating distance still working on it
+    double distance[limit];
+    double loss[limit];
+    auto ueNode = ueNodes.Get (3);
+    auto mobility = ueNode->GetObject<ns3::MobilityModel>();
+    auto point = mobility->GetPosition();//add for loop for changing distance
+    uint32_t u;
+   for(u;u<limit;++u){
+    distance[u]= point.GetLength();
+    double lambda =(pow(30,8)/(double)ulEarfcn);
+    loss[u] = 20*log10(4*3.1416*(distance[u]/lambda));// check the power loss in dB
+    std::cout << "\nFor distance "<<distance[u]<<"m loss in db is:  " << loss <<"dB\n";
+  }*/
 
-    //* Choosing forwarding strategy *//
+  //adding consumer and producer trace
+  std::cout << "\nConsumer "<<ueNodes.Get (0)->GetId ()<<" is sending interest\n  ";//add if loop if interest sent
+  std::cout << "\nProducer "<<ueNodes.Get (3)->GetId ()<<" is sending data\n\n"; //add if loop if data received
+  
+  
+  //* Choosing forwarding strategy *//
   ns3::ndn::StrategyChoiceHelper::InstallAll("/", "/localhost/nfd/strategy/directed-geocast");
-
+ 
   // Consumer
   ::ns3::ndn::AppHelper consumerHelper("ns3::ndn::ConsumerCbr");
   // Consumer will request /prefix/0, /prefix/1, ...
-  consumerHelper.SetPrefix("/v2safety/8thStreet/5");
+  consumerHelper.SetPrefix("/v2safety/8thStreet/parking");
   consumerHelper.SetAttribute("Frequency", StringValue("0.1")); // 10 interests a second
   consumerHelper.Install(ueNodes.Get(0));                        // first node
-  //consumerHelper.Install(ueNodes.Get(1));
-  //consumerHelper.Install(ueNodes.Get(2));
+
   // Producer
   ::ns3::ndn::AppHelper producerHelper("ns3::ndn::Producer");
   // Producer will reply to all requests starting with /prefix
-  producerHelper.SetPrefix("/v2safety/8thStreet/5");
+  producerHelper.SetPrefix("/v2safety/8thStreet/");
   producerHelper.SetAttribute("PayloadSize", StringValue("1024"));
   producerHelper.Install(ueNodes.Get(3));
-  //producerHelper.Install(ueNodes.Get(2));
-  //producerHelper.Install(ueNodes.Get(3));// last node
+
 
   Simulator::Stop (Seconds(20));
 
